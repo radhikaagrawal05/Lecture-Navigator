@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from youtube_transcript_api import YouTubeTranscriptApi
+from youtube_transcript_api.proxies import WebshareProxyConfig
 import nltk
 from nltk.corpus import wordnet, stopwords
 from urllib.parse import urlparse, parse_qs
@@ -159,15 +160,25 @@ _cookie_candidates = [
     "cookies.txt",                                              # cwd fallback
 ]
 COOKIES_PATH = next((p for p in _cookie_candidates if os.path.exists(p)), None)
-print(f"[startup] cookies.txt search paths: {_cookie_candidates}")
+
+# Webshare proxy API key — set this as an env var on Render for reliable transcript fetching.
+# Sign up free at https://webshare.io to get your key.
+WEBSHARE_API_KEY = os.environ.get("WEBSHARE_API_KEY")
+
 print(f"[startup] cookies.txt found at: {COOKIES_PATH}")
+print(f"[startup] Webshare proxy: {'enabled' if WEBSHARE_API_KEY else 'disabled (no WEBSHARE_API_KEY set)'}")
 
 @app.post("/analyze")
 def analyze_video(request: QueryRequest):
     video_id = extract_video_id(request.video_url)
 
     try:
-        if COOKIES_PATH:
+        # Priority: proxy > cookies > unauthenticated
+        if WEBSHARE_API_KEY:
+            print("[analyze] Using Webshare proxy")
+            proxy_config = WebshareProxyConfig(proxy_username="", proxy_password=WEBSHARE_API_KEY)
+            client = YouTubeTranscriptApi(proxy_config=proxy_config)
+        elif COOKIES_PATH:
             print(f"[analyze] Using cookies from: {COOKIES_PATH}")
             cookie_jar = http.cookiejar.MozillaCookieJar(COOKIES_PATH)
             cookie_jar.load(ignore_discard=True, ignore_expires=True)
@@ -175,7 +186,7 @@ def analyze_video(request: QueryRequest):
             session.cookies = cookie_jar  # type: ignore
             client = YouTubeTranscriptApi(http_client=session)
         else:
-            print("[analyze] No cookies.txt found — making unauthenticated request")
+            print("[analyze] No proxy or cookies — making unauthenticated request")
             client = YouTubeTranscriptApi()
         transcript = client.fetch(video_id).to_raw_data()
     except Exception as e:
