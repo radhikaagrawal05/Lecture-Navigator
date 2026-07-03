@@ -7,6 +7,10 @@ backend/api_code.py
 *.egg-info/
 .env
 
+# Secrets
+cookies.txt
+**/cookies.txt
+
 # Node
 node_modules/
 dist/

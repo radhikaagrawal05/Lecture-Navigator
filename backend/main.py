@@ -90,10 +90,10 @@ def get_expanded_concepts(keyword):
     synonyms = set([keyword.lower()])
     try:
         for syn in wordnet.synsets(keyword):
-            for l in syn.lemmas():
-                synonyms.add(l.name().replace('_', ' ').lower())
+            for lemma in syn.lemmas():
+                synonyms.add(lemma.name().replace('_', ' ').lower())
     except LookupError:
-        pass 
+        pass
     return list(synonyms)
 
 def format_time(seconds):
@@ -150,12 +150,19 @@ def get_similar_topics(transcript_list, concept):
     keyword_scores.sort(key=lambda x: x[1], reverse=True)
     return [k[0] for k in keyword_scores[:5]]
 
+# Path to cookies file — allows YouTube to treat requests as a logged-in user,
+# bypassing IP blocks on cloud providers like AWS/Render.
+COOKIES_PATH = os.path.join(os.path.dirname(__file__), "cookies.txt")
+
 @app.post("/analyze")
 def analyze_video(request: QueryRequest):
     video_id = extract_video_id(request.video_url)
-    
+
     try:
-        client = YouTubeTranscriptApi()
+        if os.path.exists(COOKIES_PATH):
+            client = YouTubeTranscriptApi(cookies=COOKIES_PATH)
+        else:
+            client = YouTubeTranscriptApi()
         transcript = client.fetch(video_id).to_raw_data()
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Could not retrieve transcript: {str(e)}")
