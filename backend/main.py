@@ -163,8 +163,8 @@ COOKIES_PATH = next((p for p in _cookie_candidates if os.path.exists(p)), None)
 
 # Webshare proxy credentials — set these as env vars on Render.
 # Find them in Webshare dashboard → Proxy → List → proxy username & password.
-WEBSHARE_PROXY_USERNAME = os.environ.get("goanaryj")
-WEBSHARE_PROXY_PASSWORD = os.environ.get("o06eiiucqflp")
+WEBSHARE_PROXY_USERNAME = os.environ.get("WEBSHARE_PROXY_USERNAME")
+WEBSHARE_PROXY_PASSWORD = os.environ.get("WEBSHARE_PROXY_PASSWORD")
 
 print(f"[startup] cookies.txt found at: {COOKIES_PATH}")
 print(f"[startup] Webshare proxy: {'enabled' if WEBSHARE_PROXY_USERNAME else 'disabled (no WEBSHARE_PROXY_USERNAME set)'}")
