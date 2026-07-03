@@ -161,12 +161,13 @@ _cookie_candidates = [
 ]
 COOKIES_PATH = next((p for p in _cookie_candidates if os.path.exists(p)), None)
 
-# Webshare proxy API key — set this as an env var on Render for reliable transcript fetching.
-# Sign up free at https://webshare.io to get your key.
-WEBSHARE_API_KEY = os.environ.get("WEBSHARE_API_KEY")
+# Webshare proxy credentials — set these as env vars on Render.
+# Find them in Webshare dashboard → Proxy → List → proxy username & password.
+WEBSHARE_PROXY_USERNAME = os.environ.get("goanaryj")
+WEBSHARE_PROXY_PASSWORD = os.environ.get("o06eiiucqflp")
 
 print(f"[startup] cookies.txt found at: {COOKIES_PATH}")
-print(f"[startup] Webshare proxy: {'enabled' if WEBSHARE_API_KEY else 'disabled (no WEBSHARE_API_KEY set)'}")
+print(f"[startup] Webshare proxy: {'enabled' if WEBSHARE_PROXY_USERNAME else 'disabled (no WEBSHARE_PROXY_USERNAME set)'}")
 
 @app.post("/analyze")
 def analyze_video(request: QueryRequest):
@@ -174,9 +175,12 @@ def analyze_video(request: QueryRequest):
 
     try:
         # Priority: proxy > cookies > unauthenticated
-        if WEBSHARE_API_KEY:
+        if WEBSHARE_PROXY_USERNAME and WEBSHARE_PROXY_PASSWORD:
             print("[analyze] Using Webshare proxy")
-            proxy_config = WebshareProxyConfig(proxy_username="", proxy_password=WEBSHARE_API_KEY)
+            proxy_config = WebshareProxyConfig(
+                proxy_username=WEBSHARE_PROXY_USERNAME,
+                proxy_password=WEBSHARE_PROXY_PASSWORD,
+            )
             client = YouTubeTranscriptApi(proxy_config=proxy_config)
         elif COOKIES_PATH:
             print(f"[analyze] Using cookies from: {COOKIES_PATH}")
