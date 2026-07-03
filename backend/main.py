@@ -151,22 +151,31 @@ def get_similar_topics(transcript_list, concept):
     keyword_scores.sort(key=lambda x: x[1], reverse=True)
     return [k[0] for k in keyword_scores[:5]]
 
-# Path to cookies file — allows YouTube to treat requests as a logged-in user,
-# bypassing IP blocks on cloud providers like AWS/Render.
-COOKIES_PATH = os.path.join(os.path.dirname(__file__), "cookies.txt")
+# Search for cookies.txt in multiple locations (repo root, backend dir, cwd)
+# because Render Secret Files may be placed at the repo root, not the backend subdir.
+_cookie_candidates = [
+    os.path.join(os.path.dirname(__file__), "cookies.txt"),   # backend/cookies.txt
+    os.path.join(os.path.dirname(__file__), "..", "cookies.txt"),  # repo root
+    "cookies.txt",                                              # cwd fallback
+]
+COOKIES_PATH = next((p for p in _cookie_candidates if os.path.exists(p)), None)
+print(f"[startup] cookies.txt search paths: {_cookie_candidates}")
+print(f"[startup] cookies.txt found at: {COOKIES_PATH}")
 
 @app.post("/analyze")
 def analyze_video(request: QueryRequest):
     video_id = extract_video_id(request.video_url)
 
     try:
-        if os.path.exists(COOKIES_PATH):
+        if COOKIES_PATH:
+            print(f"[analyze] Using cookies from: {COOKIES_PATH}")
             cookie_jar = http.cookiejar.MozillaCookieJar(COOKIES_PATH)
             cookie_jar.load(ignore_discard=True, ignore_expires=True)
             session = requests.Session()
             session.cookies = cookie_jar  # type: ignore
             client = YouTubeTranscriptApi(http_client=session)
         else:
+            print("[analyze] No cookies.txt found — making unauthenticated request")
             client = YouTubeTranscriptApi()
         transcript = client.fetch(video_id).to_raw_data()
     except Exception as e:
