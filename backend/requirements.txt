@@ -2,5 +2,6 @@ fastapi
 uvicorn
 youtube-transcript-api
 nltk
-sentence-transformers
 pydantic
+requests
+numpy

@@ -4,10 +4,12 @@ from pydantic import BaseModel
 from youtube_transcript_api import YouTubeTranscriptApi
 import nltk
 from nltk.corpus import wordnet, stopwords
-from sentence_transformers import SentenceTransformer, util
 from urllib.parse import urlparse, parse_qs
 import re
 from collections import Counter
+import os
+import requests
+import numpy as np
 
 nltk.data.path.append("./nltk_data")
 try:
@@ -16,8 +18,47 @@ except:
     nltk.download('stopwords', download_dir="./nltk_data")
     stop_words = set(stopwords.words('english'))
 
-# Load the sentence-transformer model once for efficiency so embeddings are not recomputed per request.
-embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+# Use Hugging Face Inference API instead of local model to save memory
+HF_API_TOKEN = os.environ.get("HF_API_TOKEN", "")
+API_URL = "https://api-inference.huggingface.co/pipeline/feature-extraction/sentence-transformers/all-MiniLM-L6-v2"
+HEADERS = {"Authorization": f"Bearer {HF_API_TOKEN}"}
+
+def get_embeddings(texts):
+    if not texts:
+        return []
+    if isinstance(texts, str):
+        texts = [texts]
+        
+    embeddings = []
+    batch_size = 100
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i:i+batch_size]
+        try:
+            response = requests.post(API_URL, headers=HEADERS, json={"inputs": batch, "options": {"wait_for_model": True}}, timeout=30)
+            if response.status_code == 200:
+                embeddings.extend(response.json())
+            else:
+                print(f"API Error: {response.status_code} - {response.text}")
+                embeddings.extend([[0.0]*384 for _ in batch])
+        except Exception as e:
+            print(f"Exception calling HF API: {e}")
+            embeddings.extend([[0.0]*384 for _ in batch])
+    return embeddings
+
+def cos_sim_1d_to_2d(query_emb, embs_list):
+    if not embs_list or not query_emb:
+        return []
+    q = np.array(query_emb)
+    embs = np.array(embs_list)
+    if embs.ndim == 1:
+        embs = embs.reshape(1, -1)
+    
+    dot_products = np.dot(embs, q)
+    norms_q = np.linalg.norm(q)
+    norms_embs = np.linalg.norm(embs, axis=1)
+    
+    denominators = np.maximum(norms_q * norms_embs, 1e-10)
+    return (dot_products / denominators).tolist()
 
 app = FastAPI()
 
@@ -64,30 +105,24 @@ def format_time(seconds):
     return f"{minutes}:{secs:02d}"
 
 def extract_frequent_keywords(transcript_list, max_keywords=40):
-    # Extract keywords dynamically from the transcript text instead of relying on a fixed domain map.
-    # This removes stopwords, ignores short words, and keeps the most frequent meaningful words.
     text = " ".join([t['text'] for t in transcript_list]).lower()
     words = re.findall(r'\b[a-z]{4,}\b', text)
     filtered = [w for w in words if w not in stop_words]
     return [word for word, _ in Counter(filtered).most_common(max_keywords)]
 
-
 def get_related_transcript_keywords(transcript_keywords, query, min_score=0.35, top_n=10):
     if not transcript_keywords:
         return []
 
-    query_embedding = embedding_model.encode(query, convert_to_tensor=True)
-    keyword_embeddings = embedding_model.encode(transcript_keywords, convert_to_tensor=True)
-    scores = util.cos_sim(query_embedding, keyword_embeddings)[0].tolist()
+    query_embedding = get_embeddings([query])[0]
+    keyword_embeddings = get_embeddings(transcript_keywords)
+    scores = cos_sim_1d_to_2d(query_embedding, keyword_embeddings)
 
-    # Determine top transcript keywords that are semantically related to the query.
-    # This enables domain-independent matching even when the exact query term is absent.
     scored_keywords = sorted(zip(transcript_keywords, scores), key=lambda x: x[1], reverse=True)
     related = [word for word, score in scored_keywords if score >= min_score][:top_n]
     if not related:
         related = [word for word, _ in scored_keywords[:min(top_n, len(scored_keywords))]]
     return related
-
 
 def get_similar_topics(transcript_list, concept):
     video_keywords = extract_frequent_keywords(transcript_list)
@@ -129,13 +164,11 @@ def analyze_video(request: QueryRequest):
     transcript_keywords = extract_frequent_keywords(transcript, max_keywords=40)
     sentence_texts = [item['text'].lower() for item in transcript]
 
-    query_embedding = embedding_model.encode(request.concept, convert_to_tensor=True)
-    sentence_embeddings = embedding_model.encode(sentence_texts, convert_to_tensor=True) if sentence_texts else None
-    sentence_similarity_scores = util.cos_sim(query_embedding, sentence_embeddings)[0].tolist() if sentence_embeddings is not None else []
+    query_embedding = get_embeddings([request.concept])[0]
+    sentence_embeddings = get_embeddings(sentence_texts) if sentence_texts else []
+    sentence_similarity_scores = cos_sim_1d_to_2d(query_embedding, sentence_embeddings) if sentence_embeddings else []
     related_keywords = get_related_transcript_keywords(transcript_keywords, request.concept)
 
-    # First exact keyword matching using WordNet expansions, then semantic matching using embeddings.
-    # This supports domain-independent identification of related concepts from transcript content.
     clusters = []
     current_cluster = None
     CLUSTER_THRESHOLD = 45.0 
@@ -150,9 +183,7 @@ def analyze_video(request: QueryRequest):
                     matched_words.append(related_kw)
                     break
 
-        # If no exact or related transcript keyword was found, fall back to semantic similarity
-        # between the user query and the full sentence. This captures broader concept matches.
-        if not matched_words and sentence_similarity_scores:
+        if not matched_words and sentence_similarity_scores and idx < len(sentence_similarity_scores):
             if sentence_similarity_scores[idx] >= 0.55:
                 matched_words.append(request.concept)
 
