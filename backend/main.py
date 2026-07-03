@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from youtube_transcript_api import YouTubeTranscriptApi
+from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
 import nltk
 from nltk.corpus import wordnet, stopwords
 from urllib.parse import urlparse, parse_qs
@@ -155,8 +155,9 @@ def analyze_video(request: QueryRequest):
     video_id = extract_video_id(request.video_url)
     
     try:
-        client = YouTubeTranscriptApi()
-        transcript = client.fetch(video_id).to_raw_data()
+        transcript = YouTubeTranscriptApi.get_transcript(video_id)
+    except (TranscriptsDisabled, NoTranscriptFound) as e:
+        raise HTTPException(status_code=400, detail=f"No transcript available for this video: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Could not retrieve transcript: {str(e)}")
 

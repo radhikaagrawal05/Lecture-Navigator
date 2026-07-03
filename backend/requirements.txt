@@ -1,6 +1,6 @@
 fastapi
 uvicorn
-youtube-transcript-api
+youtube-transcript-api==0.6.3
 nltk
 pydantic
 requests
