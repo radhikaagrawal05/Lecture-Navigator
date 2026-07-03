@@ -8,6 +8,7 @@ from urllib.parse import urlparse, parse_qs
 import re
 from collections import Counter
 import os
+import http.cookiejar
 import requests
 import numpy as np
 
@@ -160,7 +161,11 @@ def analyze_video(request: QueryRequest):
 
     try:
         if os.path.exists(COOKIES_PATH):
-            client = YouTubeTranscriptApi(cookies=COOKIES_PATH)
+            cookie_jar = http.cookiejar.MozillaCookieJar(COOKIES_PATH)
+            cookie_jar.load(ignore_discard=True, ignore_expires=True)
+            session = requests.Session()
+            session.cookies = cookie_jar  # type: ignore
+            client = YouTubeTranscriptApi(http_client=session)
         else:
             client = YouTubeTranscriptApi()
         transcript = client.fetch(video_id).to_raw_data()
